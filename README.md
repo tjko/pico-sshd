@@ -69,11 +69,11 @@ include(libs/pico-sshd/cmake/wolfssh_pico.cmake)
 
 #### Include wolfSSL configuration
 
-Additionally configuration for wolfSSL (and wolfSSH) needs to be included by defininc location where it
+Additionally configuration for wolfSSL (and wolfSSH) needs to be included by defining location where it
 can be found in CMakeLists.txt.
 
 Sample wolfSSL/wolfSSH configuration (user_settings.h) is included with _pico-sshd_ under as _wolfssl/user_settings.h_
-which can be included directly (or you can create your own version and include it).
+which can be included directly (or you can create your own version and include it instead).
 
 For example:
 ```
@@ -94,8 +94,8 @@ ssh_server_t *sshserver = ssh_server_init(2048, 8192); // input and output buffe
 if (!sshserver)
     panic("out of memory);
 
-// add private key (DER format)
-ssh_server_add_priv_key(sshserver, WOLFSSH_FORMAT_ASN1, buf, buf_size);
+// add server private key (DER format)
+ssh_server_add_priv_key(sshserver, WOLFSSH_FORMAT_ASN1, privkey, privkey_size);
 
 ssherver->auth_enabled = false;
 ssh_server_start(sshserver, true);  // parameter tells whether to enable stdio driver or not... */
@@ -135,6 +135,8 @@ if (!sshserver)
 sshserver->port = 8000;
 sshserver->auth_cb_ctx = (void*)users;
 
+// add server private key (DER format)
+ssh_server_add_priv_key(sshserver, WOLFSSH_FORMAT_ASN1, privkey, privkey_size);
 
 ssh_server_start(sshserver, true);  // parameter tells whether to enable stdio driver or not... */
 
@@ -143,22 +145,25 @@ ssh_server_start(sshserver, true);  // parameter tells whether to enable stdio d
 ## Additional Features
 
 ### Authentication
-pico_telnetd support simple password based authentication. To enable authentication _auth_cb_ needs to be set 
-(and optionally _auth_cb_param_ to specify parameters to pass to the authentication function.
+pico_sshd includes simple default authentication function.
+This might not be suitable for all use cases, to it is possible to provide your own authentication
+callback function by setting _auth_cb_ before calling ssh_server_start().
 
 ```
-int my_auth_cb(void *param, const char *login, const char *password)
+int my_auth_cb(void *ctx, const byte *login, word32 login_len,
+               const byte *auth, word32 auth_len, int auth_type)
 {
   if <user password is valid> {
     return 0;
   }
-  return -1;
+  // return non-zero on failure...
+  return 1;
 }
 
 ...
 
-tcpserver->auth_cb = my_auth_cb;
-tcp_server_start(telnetserver, true);
+sshserver->auth_cb = my_auth_cb;
+ssh_server_start(sshserver, true);
 ...
 ```
 
@@ -186,7 +191,7 @@ void my_logger(int priority, const char *format, ...)
 
 ...
 sshserver->log_cb = my_logger;
-ssh_server_start(telnetserver, true);
+ssh_server_start(sshserver, true);
 ...
 ```
 
@@ -198,7 +203,7 @@ To disable logging done by the library completely. Simply set the _log_cb_ to NU
 ```
 ...
 sshserver->log_cb = NULL;
-ssh_server_start(telnetserver, true);
+ssh_server_start(sshserver, true);
 ...
 ```
 
