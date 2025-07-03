@@ -5,6 +5,7 @@ This is an interface library making it easy to add [wolfSSH](https://www.wolfssl
 
 This software is under GPL license, while wolfSSH / wolfSSL is subject to its own license.
 
+![Demo Animation](images/pico-sshd_demo.png)
 
 This library was created for [FanPico](https://github.com/tjko/fanpico/) 
 and [BrickPico](https://github.com/tjko/brickpico/) projects.
