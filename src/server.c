@@ -179,6 +179,8 @@ ssh_server_t* ssh_server_new(size_t rxbuf_size, size_t txbuf_size)
 	ssh_ringbuffer_init(&st->rb_in, NULL, rxbuf_size);
 	ssh_ringbuffer_init(&st->rb_out, NULL, txbuf_size);
 
+	LOG_MSG(LOG_DEBUG, "ssh_server_new(%u,%u): %p",
+		rxbuf_size, txbuf_size, st);
 	return st;
 }
 
@@ -228,38 +230,62 @@ static err_t ssh_close_client_connection(ssh_server_t *st)
 		st->ssh = NULL;
 	}
 
+	LOG_MSG(LOG_DEBUG, "ssh_close_client_connection(%p): %d",
+		st, err);
 	return err;
 }
 
 
 static err_t ssh_process_input(ssh_server_t *st)
 {
-	int res, err;
-	uint8_t tmp[64];
+	int res, rc;
 	word32 channel_id = 0;
 
 
 	res = wolfSSH_worker(st->ssh, &channel_id);
-	if (res != WS_CHAN_RXD)
+	if (res < 0) {
+		rc = wolfSSH_get_error(st->ssh);
+		if (rc == WS_CHAN_RXD) {
+			if (channel_id != 0)
+				LOG_MSG(LOG_DEBUG,"Data waiting for channel: %u", channel_id);
+
+		}
+		else if (rc == WS_CHANNEL_CLOSED) {
+			LOG_MSG(LOG_DEBUG, "Channel closed: %d", channel_id);
+			return ERR_OK;
+		}
+		else if (rc == WS_REKEYING) {
+			LOG_MSG(LOG_INFO, "SSH Connection Re-keying");
+			return ERR_OK;
+		}
+		else if (rc == WS_WANT_READ || rc == WS_WANT_WRITE) {
+			return ERR_OK;
+		} else {
+			LOG_MSG(LOG_NOTICE, "Unkown error: %d", rc);
+			ssh_close_client_connection(st);
+			return ERR_OK;
+		}
+	}
+	else  {
+		WOLFSSH_CHANNEL *cur = wolfSSH_ChannelFind(st->ssh, channel_id,	WS_CHANNEL_ID_SELF);
+		if (cur) {
+			if (wolfSSH_ChannelGetEof(cur)) {
+				LOG_MSG(LOG_NOTICE, "SSH Client closed connection");
+				ssh_close_client_connection(st);
+			}
+		}
 		return ERR_OK;
+	}
 
-
-	channel_id = 0;
 
 	do {
-		if (ssh_ringbuffer_free(&st->rb_in) >= sizeof(tmp)) {
+		uint8_t tmp[64];
+
+		if (channel_id != 0 || ssh_ringbuffer_free(&st->rb_in) >= sizeof(tmp)) {
 			res = wolfSSH_ChannelIdRead(st->ssh, channel_id, tmp, sizeof(tmp));
-			err = wolfSSH_get_error(st->ssh);
 			if (res > 0) {
 				if (channel_id == 0)
 					ssh_ringbuffer_add(&st->rb_in, tmp, res, false);
-			}
-			else if (res < 0 && (err == WS_WANT_READ || err == WS_WANT_WRITE)) {
-				/* no more data to read... */
-			}
-			else {
-				//LOG_MSG(LOG_INFO, "wolfSSH_stream_read(): error %d (%d)", res, err);
-				//ssh_close_client_connection(st);
 			}
 		} else {
 			res = 0;
@@ -424,6 +450,7 @@ static err_t ssh_server_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 	wolfSSH_SetUserAuthResultCtx(ssh, st);
 	wolfSSH_SetIOReadCtx(ssh, st);
 	wolfSSH_SetIOWriteCtx(ssh, st);
+	wolfSSH_SetChannelReqCtx(ssh, st);
 
 	st->ssh = ssh;
 	st->client = pcb;
@@ -584,6 +611,40 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 }
 
 
+static int channel_req_shell_cb(WOLFSSH_CHANNEL *channel, void *ctx)
+{
+        ssh_server_t *st = ctx;
+	word32 id = 0;
+
+	wolfSSH_ChannelGetId(channel, &id, WS_CHANNEL_ID_SELF);
+	LOG_MSG(LOG_INFO, "Opening shell on channel: %u (%s)", id);
+
+	return WS_SUCCESS;
+}
+
+
+static int channel_req_subsys_cb(WOLFSSH_CHANNEL *channel, void *ctx)
+{
+        ssh_server_t *st = ctx;
+
+	LOG_MSG(LOG_INFO, "Subsystem not implemented: %s",
+		wolfSSH_ChannelGetSessionCommand(channel));
+
+	return WS_ERROR;
+}
+
+
+static int channel_req_exec_cb(WOLFSSH_CHANNEL *channel, void *ctx)
+{
+        ssh_server_t *st = ctx;
+
+	LOG_MSG(LOG_INFO, "Exec not implemented: %s",
+		wolfSSH_ChannelGetSessionCommand(channel));
+
+	return WS_ERROR;
+}
+
+
 static bool ssh_server_open(ssh_server_t *st) {
 	struct tcp_pcb *pcb = NULL;
 	WOLFSSH_CTX *ctx = NULL;
@@ -606,6 +667,9 @@ static bool ssh_server_open(ssh_server_t *st) {
 	wolfSSH_SetUserAuthTypes(ctx, user_auth_types_cb);
 	wolfSSH_SetIORecv(ctx, receive_cb);
 	wolfSSH_SetIOSend(ctx, send_cb);
+	wolfSSH_CTX_SetChannelReqShellCb(ctx, channel_req_shell_cb);
+	wolfSSH_CTX_SetChannelReqSubsysCb(ctx, channel_req_subsys_cb);
+	wolfSSH_CTX_SetChannelReqExecCb(ctx, channel_req_exec_cb);
 
 	for (int i = 0; st->pkeys[i].key; i++) {
 		const ssh_server_pkey_t *pk = &st->pkeys[i];
