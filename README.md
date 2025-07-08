@@ -7,7 +7,7 @@ This software is under GPL license, while wolfSSH / wolfSSL is subject to its ow
 
 ![Demo Animation](images/pico-sshd_demo.png)
 
-This library was created for [FanPico](https://github.com/tjko/fanpico/) 
+This library was created for [FanPico](https://github.com/tjko/fanpico/)
 and [BrickPico](https://github.com/tjko/brickpico/) projects.
 
 ## Features
@@ -20,13 +20,17 @@ and [BrickPico](https://github.com/tjko/brickpico/) projects.
 * Default authentication callback (included) supports following authentication methods:
   - Password authentication against (Linux) SHA-512-Crypt hashed passwords.
   - Public key authentication
+* Supports elliptic curve cryptography (ECC) for server key and public key authentication:
+  - ED25519 (ssh-ed25519)
+  - ECDSA (ecdsa-sha2-nistp256)
+
 
 ### Dependencies
 
 This library is meant to be used with Raspberry Pi Pico-SDK and requires following additional libraries:
 
 * [wolfSSH](https://github.com/wolfssl/wolfssh/)
-* [wolfSSL](https://github.com/wolfssl/wolfssl/)
+* [wolfCrypt (included in wolfSSL)](https://github.com/wolfssl/wolfssl/)
 
 
 ## Usage
