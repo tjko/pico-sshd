@@ -5,18 +5,18 @@
 
    This file is part of pico-sshd
 
-   FanPico is free software: you can redistribute it and/or modify
+   pico-sshd is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation, either version 3 of the License, or
    (at your option) any later version.
 
-   FanPico is distributed in the hope that it will be useful,
+   pico-sshd is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with FanPico. If not, see <https://www.gnu.org/licenses/>.
+   along with pico-sshd. If not, see <https://www.gnu.org/licenses/>.
 */
 
 #ifndef PICO_SSHD_H
@@ -25,10 +25,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "lwip/tcp.h"
+#include <lwip/tcp.h>
 #include <wolfssh/ssh.h>
 
 #include "pico-sshd/ringbuffer.h"
+
 
 #define MAX_LOGIN_LENGTH 32
 #define MAX_SERVER_PKEYS 3
@@ -83,7 +84,6 @@ typedef struct ssh_user_auth_entry_t {
 	const uint8_t *auth;   /* Password hash (string) or public key (binary) */
 	uint32_t auth_len;     /* Needed when type is WOLFSSH_USERAUTH_PUBLICKEY */
 } ssh_user_auth_entry_t;
-
 
 
 /* ssh_server.c */
