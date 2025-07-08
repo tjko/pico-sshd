@@ -28,10 +28,9 @@
 #include "pico/aon_timer.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
-#include "wolfssl/wolfcrypt/settings.h"
+#include <wolfssl/wolfcrypt/wc_port.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/coding.h>
-#include <wolfssl/ssl.h>
 #include <wolfssh/ssh.h>
 
 #include "pico-sshd.h"
@@ -617,7 +616,7 @@ static int channel_req_shell_cb(WOLFSSH_CHANNEL *channel, void *ctx)
 	word32 id = 0;
 
 	wolfSSH_ChannelGetId(channel, &id, WS_CHANNEL_ID_SELF);
-	LOG_MSG(LOG_INFO, "Opening shell on channel: %u (%s)", id);
+	LOG_MSG(LOG_INFO, "Opening shell on channel: %u", id);
 
 	return WS_SUCCESS;
 }
