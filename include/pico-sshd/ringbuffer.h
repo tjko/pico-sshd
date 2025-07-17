@@ -25,6 +25,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 
 typedef struct ssh_ringbuffer_t {
 	uint8_t *buf;
@@ -48,5 +53,9 @@ int ssh_ringbuffer_read_char(ssh_ringbuffer_t *rb);
 int ssh_ringbuffer_add_char(ssh_ringbuffer_t *rb, uint8_t ch, bool overwrite);
 size_t ssh_ringbuffer_peek(ssh_ringbuffer_t *rb, void **ptr, size_t size);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PICO_SSHD_RINGBUFFER_H */

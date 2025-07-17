@@ -30,6 +30,10 @@
 
 #include "pico-sshd/ringbuffer.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 
 #define MAX_LOGIN_LENGTH 32
 #define MAX_SERVER_PKEYS 3
@@ -100,5 +104,10 @@ int ssh_server_add_priv_key(ssh_server_t *st, int type, const uint8_t *key, uint
 
 /* sha512crypt.c */
 char *ssh_server_sha512_crypt (const char *key, const char *salt);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PICO_SSHD_H */
