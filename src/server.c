@@ -164,6 +164,7 @@ ssh_server_t* ssh_server_new(size_t rxbuf_size, size_t txbuf_size)
 	st->auth_cb = ssh_server_default_auth_cb;
 	st->port = SSH_DEFAULT_PORT;
 	st->banner = ssh_default_banner;
+	st->allow_connect_cb = NULL;
 
 	ssh_ringbuffer_init(&st->rb_tcp_in, NULL, rxbuf_size);
 	ssh_ringbuffer_init(&st->rb_in, NULL, rxbuf_size);
