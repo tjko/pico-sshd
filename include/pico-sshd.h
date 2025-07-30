@@ -71,11 +71,13 @@ typedef struct ssh_server_t {
 	ssh_server_pkey_t pkeys[MAX_SERVER_PKEYS];  /* server private key(s) */
 	bool auth_enabled;         /* Set false to disable authentication. */
 
-	/* Callback functions */
+	/* Callback functions (optional) */
 	int (*auth_cb)(void* ctx, const byte *login, word32 login_len,
 		const byte *auth, word32 auth_len, int auth_type);
 	void *auth_cb_ctx;
 	void (*log_cb)(int priority, const char *format, ...);
+	/* Call back to determine if incoming connection should be allowed */
+	int (*allow_connect_cb)(ip_addr_t *src_ip);
 } ssh_server_t;
 
 /* Authentication entry used by default authentication callback routine. */

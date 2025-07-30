@@ -301,7 +301,7 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 
 	if (!p) {
 		/* Connection closed by client */
-		LOG_MSG(LOG_INFO, "SSH Client closed connection: %s:%u (%d)",
+		LOG_MSG(LOG_NOTICE, "SSH Client closed connection: %s:%u (%d)",
 			ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port, err);
 		ssh_close_client_connection(st);
 		return ERR_OK;
@@ -424,11 +424,19 @@ static err_t ssh_server_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 		return ERR_VAL;
 	}
 
-	LOG_MSG(LOG_INFO, "SSH Client connected: %s:%u",
+	LOG_MSG(LOG_NOTICE, "SSH Client connected: %s:%u",
 		ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
 
+	if (st->allow_connect_cb) {
+		if (st->allow_connect_cb(&pcb->remote_ip) <= 0) {
+			LOG_MSG(LOG_ERR, "ssh_server_accept: connection not allowed from: %s",
+				ip4addr_ntoa(&pcb->remote_ip));
+			return ERR_MEM;
+		}
+	}
+
 	if (st->cstate != CS_NONE) {
-		LOG_MSG(LOG_ERR, "ssh_server_accept: reject connection");
+		LOG_MSG(LOG_ERR, "ssh_server_accept: reject connection (too many connections)");
 		return ERR_MEM;
 	}
 
@@ -913,7 +921,7 @@ err_t ssh_server_disconnect_client(ssh_server_t *st)
 		port = st->client->remote_port;
 		res = ssh_close_client_connection(st);
 		cyw43_arch_lwip_end();
-		LOG_MSG(LOG_INFO,"SSH Client disconnected: %s:%u", ip4addr_ntoa(&ip), port);
+		LOG_MSG(LOG_NOTICE,"SSH Client disconnected: %s:%u", ip4addr_ntoa(&ip), port);
 	}
 	st->cstate = CS_NONE;
 

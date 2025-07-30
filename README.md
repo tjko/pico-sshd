@@ -108,7 +108,7 @@ ssh_server_start(sshserver, true);  // parameter tells whether to enable stdio d
 ```
 
 
-### Telnet Server with authentication on a non-standard port
+### SSH Server with authentication on a non-standard port
 
 Library includes simple default authentication callback that can perform password and publickey authentication
 against list of authentication entries.  For more advanced authentication it is possible to provide your
@@ -118,8 +118,8 @@ To use default authentication, context for authentication callback _auth_cb_ctx_
 list of authentication information (_ssh_user_auth_entry_t).
 
 ```
-#include <pico_telnetd.h>
-#include <pico_telnetd/util.h>
+#include <pico_sshd.h>
+#include <pico_sshd/util.h>
 
 /* List of users (authentication entries) with type, username, authentication data (password hash or public key), autentication data length */
 
@@ -133,7 +133,7 @@ ssh_user_auth_entry_t users[] = {
 };
 
 
-ssh_server_t *sshserver = telnet_server_init(2048, 8192);
+ssh_server_t *sshserver = ssh_server_init(2048, 8192);
 if (!sshserver)
     panic("out of memory);
 
@@ -178,7 +178,7 @@ ssh_server_start(sshserver, true);
 
 By default _pico-sshd_ logs errors to stdout. Loggin verbosity can be configured by setting logging level:
 ```
-#include <pico_telnetd/log.h>
+#include <pico_sshd/log.h>
 
 sshd_log_level(LOG_INFO);
 ```
@@ -215,10 +215,10 @@ ssh_server_start(sshserver, true);
 
 ### Usage withouth SDTIO
 
-Telnet server can alternatively be used withouth stdio, by setting stdio parameter to _false_:
+SSH server can alternatively be used withouth stdio, by setting stdio parameter to _false_:
 
 ```
-ssh_server_start(telnetserver, false);
+ssh_server_start(sshserver, false);
 ```
 
 #### Reading Data Received from Client
