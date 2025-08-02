@@ -104,9 +104,6 @@ const char *ssh_server_get_pubkey_hash(const void *pkey, uint32_t pkey_len, char
 void ssh_server_log_level(int priority);
 int ssh_server_add_priv_key(ssh_server_t *st, int type, const uint8_t *key, uint32_t key_len);
 
-/* sha512crypt.c */
-char *ssh_server_sha512_crypt (const char *key, const char *salt);
-
 
 #ifdef __cplusplus
 }

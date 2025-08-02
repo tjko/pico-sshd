@@ -1,6 +1,8 @@
 /* SHA512-based Unix crypt implementation.
    Released into the Public Domain by Ulrich Drepper <drepper@redhat.com>.  */
 
+#ifndef PICOSSHD_EXTERNAL_SHA512CRYPT
+
 //#include <endian.h>
 #include <errno.h>
 #include <limits.h>
@@ -599,7 +601,7 @@ sha512_crypt_r (const char *key, const char *salt, char *buffer, int buflen)
 /* This entry point is equivalent to the `crypt' function in Unix
    libcs.  */
 char *
-ssh_server_sha512_crypt (const char *key, const char *salt)
+sha512_crypt (const char *key, const char *salt)
 {
   /* We don't want to have an arbitrary limit in the size of the
      password.  We can compute an upper bound for the size of the
@@ -787,3 +789,5 @@ main (void)
   return result;
 }
 #endif
+
+#endif /* PICOSSHD_EXTERNAL_SHA512CRYPT */

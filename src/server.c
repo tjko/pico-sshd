@@ -36,6 +36,8 @@
 #include "pico-sshd.h"
 #include "pico-sshd/log.h"
 
+extern char *sha512_crypt (const char *key, const char *salt);
+
 
 #define SSH_DEFAULT_PORT 22
 #define SSH_SERVER_MAX_CONN 1
@@ -121,7 +123,7 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 				if ((pw = malloc(auth_len + 1))) {
 					memcpy(pw, auth, auth_len);
 					pw[auth_len] = 0;
-					hash = ssh_server_sha512_crypt(pw, (const char*)u->auth);
+					hash = sha512_crypt(pw, (const char*)u->auth);
 					memset(pw, 0, auth_len);
 					free(pw);
 				}
