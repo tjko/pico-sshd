@@ -86,7 +86,7 @@ static void ssh_server_log_msg(int priority, const char *format, ...)
 	uint64_t t = to_us_since_boot(get_absolute_time());
 	snprintf(tstamp, sizeof(tstamp), "[%6llu.%06llu][%u]",
 		(t / 1000000), (t % 1000000), core);
-	printf("%s %s %s\n", tstamp, "SSH", buf);
+	printf("%s %s %s\n", tstamp, "pico-sshd:", buf);
 
 	free(buf);
 }
@@ -143,6 +143,9 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 				/* public key matches */
 				res = 0;
 				break;
+			} else {
+				/* public key does not match */
+				res = 1;
 			}
 		}
 	}
@@ -246,13 +249,13 @@ static err_t ssh_process_input(ssh_server_t *st)
 			return ERR_OK;
 		}
 		else if (rc == WS_REKEYING) {
-			LOG_MSG(LOG_INFO, "SSH Connection Re-keying");
+			LOG_MSG(LOG_INFO, "SSH connection re-keying");
 			return ERR_OK;
 		}
 		else if (rc == WS_WANT_READ || rc == WS_WANT_WRITE) {
 			return ERR_OK;
 		} else {
-			LOG_MSG(LOG_NOTICE, "Unkown error: %d", rc);
+			LOG_MSG(LOG_NOTICE, "SSH unkown error: %d", rc);
 			ssh_close_client_connection(st);
 			return ERR_OK;
 		}
@@ -261,7 +264,7 @@ static err_t ssh_process_input(ssh_server_t *st)
 		WOLFSSH_CHANNEL *cur = wolfSSH_ChannelFind(st->ssh, channel_id,	WS_CHANNEL_ID_SELF);
 		if (cur) {
 			if (wolfSSH_ChannelGetEof(cur)) {
-				LOG_MSG(LOG_NOTICE, "SSH Client closed connection");
+				LOG_MSG(LOG_NOTICE, "SSH client closed connection");
 				ssh_close_client_connection(st);
 			}
 		}
@@ -302,8 +305,8 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 
 	if (!p) {
 		/* Connection closed by client */
-		LOG_MSG(LOG_NOTICE, "SSH Client closed connection: %s:%u (%d)",
-			ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port, err);
+		LOG_MSG(LOG_NOTICE, "SSH client closed connection from %s:%u",
+			ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
 		ssh_close_client_connection(st);
 		return ERR_OK;
 	}
@@ -411,7 +414,12 @@ static void ssh_server_err(void *arg, err_t err)
 	if (err == ERR_ABRT)
 		return;
 
-	LOG_MSG(LOG_ERR,"ssh_server_err: client connection error: %d", err);
+	if (err == ERR_RST) {
+		LOG_MSG(LOG_ERR,"SSH client disconnected: connection reset");
+	} else {
+		LOG_MSG(LOG_ERR,"ssh_server_err: client connection error: %d", err);
+	}
+	ssh_close_client_connection(st);
 }
 
 
@@ -425,19 +433,19 @@ static err_t ssh_server_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 		return ERR_VAL;
 	}
 
-	LOG_MSG(LOG_NOTICE, "SSH Client connected: %s:%u",
-		ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
-
 	if (st->allow_connect_cb) {
 		if (st->allow_connect_cb(&pcb->remote_ip) <= 0) {
-			LOG_MSG(LOG_ERR, "ssh_server_accept: connection not allowed from: %s",
+			LOG_MSG(LOG_ERR, "SSH connection rejected from %s",
 				ip4addr_ntoa(&pcb->remote_ip));
 			return ERR_MEM;
 		}
 	}
 
+	LOG_MSG(LOG_NOTICE, "SSH accepted connection from %s:%u",
+		ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
+
 	if (st->cstate != CS_NONE) {
-		LOG_MSG(LOG_ERR, "ssh_server_accept: reject connection (too many connections)");
+		LOG_MSG(LOG_ERR, "SSH connection rejected: too many connections");
 		return ERR_MEM;
 	}
 
@@ -475,21 +483,21 @@ static int user_auth_result_cb(byte res, WS_UserAuthData* auth_data, void* ctx)
 	ssh_server_t *st = ctx;
 	char tmpbuf[64];
 
-
+	LOG_MSG(LOG_NOTICE, "user_auth_result_cb");
 	if (st) {
 		if (auth_data->type == WOLFSSH_USERAUTH_PUBLICKEY) {
-			if (res == WOLFSSH_USERAUTH_SUCCESS) {
-				LOG_MSG(LOG_NOTICE,
-					"Successful publickey authentication: %s (SHA256:%s)",
-					auth_data->username,
-					ssh_server_get_pubkey_hash(
-						auth_data->sf.publicKey.publicKey,
+			ssh_server_get_pubkey_hash(auth_data->sf.publicKey.publicKey,
 						auth_data->sf.publicKey.publicKeySz,
-						tmpbuf, sizeof(tmpbuf)));
+						tmpbuf, sizeof(tmpbuf));
+			if (res == WOLFSSH_USERAUTH_SUCCESS) {
+				LOG_MSG(LOG_NOTICE, "SSH accepted publickey for %s (SHA256:%s)",
+					auth_data->username, tmpbuf);
 			} else {
-				LOG_MSG(LOG_NOTICE, "Failed publickey authentication: %s",
+				LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for %s",
 					auth_data->username);
 			}
+		} else {
+			LOG_MSG(LOG_NOTICE, "user_auth_result_cb: unhandled auth type");
 		}
 	}
 
@@ -567,19 +575,17 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 
 	if (auth_type == WOLFSSH_USERAUTH_PASSWORD) {
 		if (st->auth_cb) {
-			if (!st->auth_cb(st->auth_cb_ctx,
-						auth_data->username,
-						auth_data->usernameSz,
-						auth_data->sf.password.password,
-						auth_data->sf.password.passwordSz,
-						auth_type)) {
+			ret = st->auth_cb(st->auth_cb_ctx, auth_data->username, auth_data->usernameSz,
+					auth_data->sf.password.password, auth_data->sf.password.passwordSz,
+					auth_type);
+			if (ret == 0) {
 				ret = WOLFSSH_USERAUTH_SUCCESS;
-				LOG_MSG(LOG_NOTICE, "Successful password authentication: %s",
+				LOG_MSG(LOG_NOTICE, "SSH accepted password for user %s",
 					auth_data->username);
 			} else {
 				ret = WOLFSSH_USERAUTH_INVALID_PASSWORD;
-				LOG_MSG(LOG_NOTICE, "Failed password authentication: %s",
-					auth_data->username);
+				LOG_MSG(LOG_NOTICE, "SSH failed password for %s user %s",
+					(ret == 1 ? "" : "invalid"), auth_data->username);
 			}
 		}
 	}
@@ -599,7 +605,7 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 	}
 	else if (auth_type == WOLFSSH_USERAUTH_NONE && !st->auth_enabled) {
 		ret = WOLFSSH_USERAUTH_SUCCESS;
-		LOG_MSG(LOG_NOTICE, "Unauthenticated connection accepted: %s",
+		LOG_MSG(LOG_NOTICE, "SSH unauthenticated connection accepted for user %s",
 			auth_data->username);
 	}
 	else {
@@ -616,7 +622,7 @@ static int channel_req_shell_cb(WOLFSSH_CHANNEL *channel, void *ctx)
 	word32 id = 0;
 
 	wolfSSH_ChannelGetId(channel, &id, WS_CHANNEL_ID_SELF);
-	LOG_MSG(LOG_INFO, "Opening shell on channel: %u", id);
+	LOG_MSG(LOG_INFO, "SSH opening shell on channel: %u", id);
 
 	return WS_SUCCESS;
 }
@@ -626,7 +632,7 @@ static int channel_req_subsys_cb(WOLFSSH_CHANNEL *channel, void *ctx)
 {
         ssh_server_t *st = ctx;
 
-	LOG_MSG(LOG_INFO, "Subsystem not implemented: %s",
+	LOG_MSG(LOG_INFO, "SSH subsystem not implemented: %s",
 		wolfSSH_ChannelGetSessionCommand(channel));
 
 	return WS_ERROR;
@@ -637,7 +643,7 @@ static int channel_req_exec_cb(WOLFSSH_CHANNEL *channel, void *ctx)
 {
         ssh_server_t *st = ctx;
 
-	LOG_MSG(LOG_INFO, "Exec not implemented: %s",
+	LOG_MSG(LOG_INFO, "SSH exec not implemented: %s",
 		wolfSSH_ChannelGetSessionCommand(channel));
 
 	return WS_ERROR;
@@ -917,12 +923,13 @@ err_t ssh_server_disconnect_client(ssh_server_t *st)
 	uint16_t port;
 
 	if (st->client) {
-		cyw43_arch_lwip_begin();
 		ip_addr_set(&ip, &st->client->remote_ip);
 		port = st->client->remote_port;
+		LOG_MSG(LOG_NOTICE,"SSH user (%s) disconnected from %s:%u",
+			st->login ? st->login : "unknown", ip4addr_ntoa(&ip), port);
+		cyw43_arch_lwip_begin();
 		res = ssh_close_client_connection(st);
 		cyw43_arch_lwip_end();
-		LOG_MSG(LOG_NOTICE,"SSH Client disconnected: %s:%u", ip4addr_ntoa(&ip), port);
 	}
 	st->cstate = CS_NONE;
 
@@ -930,7 +937,8 @@ err_t ssh_server_disconnect_client(ssh_server_t *st)
 }
 
 
-const char *ssh_server_get_pubkey_hash(const void *pkey, uint32_t pkey_len, char *str_buf, uint32_t str_buf_len)
+const char *ssh_server_get_pubkey_hash(const void *pkey, uint32_t pkey_len,
+				char *str_buf, uint32_t str_buf_len)
 {
 	uint8_t hash[WC_SHA256_DIGEST_SIZE];
 	word32 out_len = str_buf_len;
