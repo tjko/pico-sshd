@@ -398,7 +398,12 @@ static err_t ssh_server_poll(void *arg, struct tcp_pcb *pcb)
 			err = wolfSSH_get_error(st->ssh);
 			if (err == WS_WANT_READ || err == WS_WANT_WRITE)
 				return ERR_OK;
-			LOG_MSG(LOG_INFO, "wolfSSH_accept(): failed: %d (%d)", err, res);
+			if (err == WS_USER_AUTH_E) {
+				LOG_MSG(LOG_NOTICE, "SSH connection rejected from %s:%u",
+					ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
+			} else {
+				LOG_MSG(LOG_INFO, "wolfSSH_accept(): failed: %d (%d)", err, res);
+			}
 			ssh_close_client_connection(st);
 		}
 	}
@@ -576,16 +581,9 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 
 	if (!auth_data || !st || !ctx)
 		return ret;
-
 	if (!st->auth_cb)
-		return WOLFSSH_USERAUTH_REJECTED;
+		return ret;
 
-	if (st->max_auth_tries > 0 && st->auth_tries >= st->max_auth_tries) {
-		LOG_MSG(LOG_INFO, "SSH too many failed authentication attempts for %s",
-			auth_data->username);
-		return WOLFSSH_USERAUTH_REJECTED;
-	}
-	st->auth_tries++;
 
 	if (auth_type == WOLFSSH_USERAUTH_PASSWORD) {
 		ret = st->auth_cb(st->auth_cb_ctx,
@@ -620,10 +618,10 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 				LOG_MSG(LOG_NOTICE, "SSH accepted publickey for %s (SHA256:%s)",
 					auth_data->username, hash);
 		} else if (ret == WOLFSSH_USERAUTH_INVALID_USER) {
-			LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for invalid user"
+			LOG_MSG(LOG_INFO, "SSH failed publickey authentication for invalid user"
 				" %s (SHA256:%s)", auth_data->username, hash);
 		} else {
-			LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for user"
+			LOG_MSG(LOG_INFO, "SSH failed publickey authentication for user"
 				" %s (SHA256:%s)", auth_data->username, hash);
 		}
 	}
@@ -634,6 +632,17 @@ static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 	}
 	else {
 		ret = WOLFSSH_USERAUTH_INVALID_AUTHTYPE;
+	}
+
+
+	/* Check for too many failed authentication attempts... */
+	if (ret != WOLFSSH_USERAUTH_SUCCESS && ret != WOLFSSH_USERAUTH_INVALID_AUTHTYPE) {
+		st->auth_tries++;
+		if (st->max_auth_tries > 0 && st->auth_tries >= st->max_auth_tries) {
+			LOG_MSG(LOG_NOTICE, "SSH too many failed authentication attempts for %s",
+				auth_data->username);
+			ret = WOLFSSH_USERAUTH_REJECTED;
+		}
 	}
 
 	return ret;
