@@ -98,13 +98,12 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 				const byte *auth, word32 auth_len, int auth_type)
 {
 	ssh_user_auth_entry_t *users = (ssh_user_auth_entry_t*)ctx;
-	char *pw, *hash;
 	int i = 0;
-	int res = 2;
+	int res = WOLFSSH_USERAUTH_INVALID_USER;
 
 
 	if (!ctx || !login || !auth)
-		return res;
+		return WOLFSSH_USERAUTH_FAILURE;
 
 	/* Go through list of authentication entries */
 	while (users[i].username) {
@@ -118,8 +117,10 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 			continue;
 
 		if (auth_type == WOLFSSH_USERAUTH_PASSWORD) {
-			hash = NULL;
+			char *hash = NULL;
+
 			if (strlen((char*)u->auth) > 0) {
+				char *pw;
 				if ((pw = malloc(auth_len + 1))) {
 					memcpy(pw, auth, auth_len);
 					pw[auth_len] = 0;
@@ -131,11 +132,11 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 			if (hash) {
 				if (!strcmp(hash, (char*)u->auth)) {
 					/* password matches */
-					res = 0;
+					res = WOLFSSH_USERAUTH_SUCCESS;
 					break;
 				} else {
 					/* password does not match */
-					res = 1;
+					res = WOLFSSH_USERAUTH_INVALID_PASSWORD;
 					break;
 				}
 			}
@@ -143,11 +144,11 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 		else if (auth_type == WOLFSSH_USERAUTH_PUBLICKEY) {
 			if (!memcmp(auth, u->auth, auth_len)) {
 				/* public key matches */
-				res = 0;
+				res = WOLFSSH_USERAUTH_SUCCESS;
 				break;
 			} else {
 				/* public key does not match */
-				res = 1;
+				res = WOLFSSH_USERAUTH_INVALID_PUBLICKEY;
 			}
 		}
 	}
@@ -170,6 +171,7 @@ ssh_server_t* ssh_server_new(size_t rxbuf_size, size_t txbuf_size)
 	st->port = SSH_DEFAULT_PORT;
 	st->banner = ssh_default_banner;
 	st->allow_connect_cb = NULL;
+	st->max_auth_tries = 6;
 
 	ssh_ringbuffer_init(&st->rb_tcp_in, NULL, rxbuf_size);
 	ssh_ringbuffer_init(&st->rb_in, NULL, rxbuf_size);
@@ -463,6 +465,9 @@ static err_t ssh_server_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 
 	st->ssh = ssh;
 	st->client = pcb;
+	st->auth_tries = 0;
+	st->login[0] = 0;
+	st->cstate = CS_ACCEPT;
 	tcp_arg(pcb, st);
 #if 0
 	tcp_sent(pcb, ssh_server_sent);
@@ -471,39 +476,11 @@ static err_t ssh_server_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 	tcp_poll(pcb, ssh_server_poll, SSH_CLIENT_POLL_TIME);
 	tcp_err(pcb, ssh_server_err);
 
-	st->cstate = CS_ACCEPT;
 	ssh_ringbuffer_flush(&st->rb_tcp_in);
 	ssh_ringbuffer_flush(&st->rb_in);
 	ssh_ringbuffer_flush(&st->rb_out);
 
 	return ERR_OK;
-}
-
-
-static int user_auth_result_cb(byte res, WS_UserAuthData* auth_data, void* ctx)
-{
-	ssh_server_t *st = ctx;
-	char tmpbuf[64];
-
-	LOG_MSG(LOG_NOTICE, "user_auth_result_cb");
-	if (st) {
-		if (auth_data->type == WOLFSSH_USERAUTH_PUBLICKEY) {
-			ssh_server_get_pubkey_hash(auth_data->sf.publicKey.publicKey,
-						auth_data->sf.publicKey.publicKeySz,
-						tmpbuf, sizeof(tmpbuf));
-			if (res == WOLFSSH_USERAUTH_SUCCESS) {
-				LOG_MSG(LOG_NOTICE, "SSH accepted publickey for %s (SHA256:%s)",
-					auth_data->username, tmpbuf);
-			} else {
-				LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for %s",
-					auth_data->username);
-			}
-		} else {
-			LOG_MSG(LOG_NOTICE, "user_auth_result_cb: unhandled auth type");
-		}
-	}
-
-	return WS_SUCCESS;
 }
 
 
@@ -565,44 +542,89 @@ static int user_auth_types_cb(WOLFSSH *ssh, void *ctx)
 	return ret;
 }
 
+#if 0
+static int user_auth_result_cb(byte res, WS_UserAuthData* auth_data, void* ctx)
+{
+	ssh_server_t *st = ctx;
+	char tmpbuf[64];
+
+	if (st) {
+		if (auth_data->type == WOLFSSH_USERAUTH_PUBLICKEY) {
+			ssh_server_get_pubkey_hash(auth_data->sf.publicKey.publicKey,
+						auth_data->sf.publicKey.publicKeySz,
+						tmpbuf, sizeof(tmpbuf));
+			if (res == WOLFSSH_USERAUTH_SUCCESS) {
+				LOG_MSG(LOG_NOTICE, "SSH accepted publickey for %s (SHA256:%s)",
+					auth_data->username, tmpbuf);
+			} else {
+				LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for %s",
+					auth_data->username);
+			}
+		} else {
+			LOG_MSG(LOG_NOTICE, "user_auth_result_cb: unhandled auth type");
+		}
+	}
+
+	return WS_SUCCESS;
+}
+#endif
 
 static int user_auth_cb(byte auth_type, WS_UserAuthData* auth_data, void *ctx)
 {
         ssh_server_t *st = ctx;
 	int ret = WOLFSSH_USERAUTH_FAILURE;
 
-
-	if (!auth_data || !st)
+	if (!auth_data || !st || !ctx)
 		return ret;
 
+	if (!st->auth_cb)
+		return WOLFSSH_USERAUTH_REJECTED;
+
+	if (st->max_auth_tries > 0 && st->auth_tries >= st->max_auth_tries) {
+		LOG_MSG(LOG_INFO, "SSH too many failed authentication attempts for %s",
+			auth_data->username);
+		return WOLFSSH_USERAUTH_REJECTED;
+	}
+	st->auth_tries++;
+
 	if (auth_type == WOLFSSH_USERAUTH_PASSWORD) {
-		if (st->auth_cb) {
-			ret = st->auth_cb(st->auth_cb_ctx, auth_data->username, auth_data->usernameSz,
-					auth_data->sf.password.password, auth_data->sf.password.passwordSz,
-					auth_type);
-			if (ret == 0) {
-				ret = WOLFSSH_USERAUTH_SUCCESS;
-				LOG_MSG(LOG_NOTICE, "SSH accepted password for user %s",
-					auth_data->username);
-			} else {
-				ret = WOLFSSH_USERAUTH_INVALID_PASSWORD;
-				LOG_MSG(LOG_NOTICE, "SSH failed password for %s user %s",
-					(ret == 1 ? "" : "invalid"), auth_data->username);
-			}
+		ret = st->auth_cb(st->auth_cb_ctx,
+				auth_data->username,
+				auth_data->usernameSz,
+				auth_data->sf.password.password,
+				auth_data->sf.password.passwordSz,
+				auth_type);
+		if (ret == WOLFSSH_USERAUTH_SUCCESS) {
+			LOG_MSG(LOG_NOTICE, "SSH accepted password for user %s", auth_data->username);
+		} else if (ret == WOLFSSH_USERAUTH_INVALID_USER) {
+			LOG_MSG(LOG_NOTICE, "SSH failed password for invalid user %s",
+				auth_data->username);
+		} else {
+			LOG_MSG(LOG_NOTICE, "SSH failed password for user %s",
+				auth_data->username);
 		}
 	}
 	else if (auth_type == WOLFSSH_USERAUTH_PUBLICKEY) {
-		if (st->auth_cb) {
-			if (!st->auth_cb(st->auth_cb_ctx,
-						auth_data->username,
-						auth_data->usernameSz,
-						auth_data->sf.publicKey.publicKey,
-						auth_data->sf.publicKey.publicKeySz,
-						auth_type)) {
-				ret = WOLFSSH_USERAUTH_SUCCESS;
-			} else {
-				ret = WOLFSSH_USERAUTH_INVALID_PUBLICKEY;
-			}
+		char hash[64];
+		ret = st->auth_cb(st->auth_cb_ctx,
+				auth_data->username,
+				auth_data->usernameSz,
+				auth_data->sf.publicKey.publicKey,
+				auth_data->sf.publicKey.publicKeySz,
+				auth_type);
+		ssh_server_get_pubkey_hash(auth_data->sf.publicKey.publicKey,
+					auth_data->sf.publicKey.publicKeySz,
+					hash, sizeof(hash));
+		if (ret == WOLFSSH_USERAUTH_SUCCESS) {
+			if (auth_data->sf.publicKey.hasSignature)
+				LOG_MSG(LOG_NOTICE, "SSH accepted publickey for %s (SHA256:%s)",
+					auth_data->username, hash);
+		} else if (ret == WOLFSSH_USERAUTH_INVALID_USER) {
+			LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for invalid user"
+				" %s (SHA256:%s)", auth_data->username, hash);
+		} else {
+			LOG_MSG(LOG_NOTICE, "SSH failed publickey authentication for user"
+				" %s (SHA256:%s)", auth_data->username, hash);
 		}
 	}
 	else if (auth_type == WOLFSSH_USERAUTH_NONE && !st->auth_enabled) {
@@ -670,7 +692,9 @@ static bool ssh_server_open(ssh_server_t *st) {
 	wolfSSH_CTX_SetSshProtoIdStr(ctx, "SSH-2.0-picoSSH wolfSSHv"
                                     LIBWOLFSSH_VERSION_STRING "\r\n");
 	wolfSSH_SetUserAuth(ctx, user_auth_cb);
+#if 0
 	wolfSSH_SetUserAuthResult(ctx, user_auth_result_cb);
+#endif
 	wolfSSH_SetUserAuthTypes(ctx, user_auth_types_cb);
 	wolfSSH_SetIORecv(ctx, receive_cb);
 	wolfSSH_SetIOSend(ctx, send_cb);

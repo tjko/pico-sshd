@@ -64,12 +64,14 @@ typedef struct ssh_server_t {
 	ssh_ringbuffer_t rb_in;            /* Decrypted input buffer */
 	ssh_ringbuffer_t rb_out;           /* Unencrypted output buffer */
 	char login[MAX_LOGIN_LENGTH + 1];  /* Currently logged in user */
+	uint8_t auth_tries;                /* Count of failed authentication attempts */
 
 	/* Configuration options... set before calling ssg_server_start() */
 	uint16_t port;             /* Listen port (default tcp/22) */
 	const char *banner;        /* Login banner string to display when connection starts. */
 	ssh_server_pkey_t pkeys[MAX_SERVER_PKEYS];  /* server private key(s) */
 	bool auth_enabled;         /* Set false to disable authentication. */
+	uint8_t max_auth_tries;    /* Maximum authentication attempts allowed (MaxAuthTries) */
 
 	/* Callback functions (optional) */
 	int (*auth_cb)(void* ctx, const byte *login, word32 login_len,
