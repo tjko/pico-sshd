@@ -1,5 +1,5 @@
 /* ssh_server.c
-   Copyright (C) 2025 Timo Kokkonen <tjko@iki.fi>
+   Copyright (C) 2025-2026 Timo Kokkonen <tjko@iki.fi>
 
    SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -956,17 +956,22 @@ err_t ssh_server_disconnect_client(ssh_server_t *st)
 	err_t res = ERR_OK;
 	ip_addr_t ip;
 	uint16_t port;
+	char *login = NULL;
 
 	if (st->client) {
 		ip_addr_set(&ip, &st->client->remote_ip);
 		port = st->client->remote_port;
-		LOG_MSG(LOG_NOTICE,"SSH user (%s) disconnected from %s:%u",
-			st->login ? st->login : "unknown", ip4addr_ntoa(&ip), port);
+		login = strndup(st->login, MAX_LOGIN_LENGTH);
 		cyw43_arch_lwip_begin();
 		res = ssh_close_client_connection(st);
 		cyw43_arch_lwip_end();
+		LOG_MSG(LOG_NOTICE,"SSH user (%s) disconnected from %s:%u",
+			login ? login : "<unknown>", ip4addr_ntoa(&ip), port);
 	}
 	st->cstate = CS_NONE;
+
+	if (login)
+		free(login);
 
 	return res;
 }
