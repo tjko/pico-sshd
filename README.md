@@ -23,6 +23,7 @@ and [BrickPico](https://github.com/tjko/brickpico/) projects.
 * Supports elliptic curve cryptography (ECC) for server key and public key authentication:
   - ED25519 (ssh-ed25519)
   - ECDSA (ecdsa-sha2-nistp256)
+* Supports "Post-Quantum" cryptography key agreement algorithms (ML-KEM)
 
 
 ### Dependencies
@@ -95,7 +96,7 @@ To add "ssh" support to a Pico W project, that allows accessing the unit over ne
 ...
 <initialize networking>
 ...
-ssh_server_t *sshserver = ssh_server_init(2048, 8192); // input and output buffer sizes
+ssh_server_t *sshserver = ssh_server_init(4096, 8192); // input and output buffer sizes
 if (!sshserver)
     panic("out of memory);
 

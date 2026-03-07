@@ -45,6 +45,13 @@ extern "C"
 #define WOLFSSH_SMALL_STACK
 #define WOLFSSH_KEYGEN
 #define WOLFSSH_ALLOW_USERAUTH_NONE
+#define WOLFSSL_HAVE_MLKEM
+#define WOLFSSL_WC_MLKEM
+#define WOLFSSL_NO_MAKE_KEY
+#define WOLFSSL_SHAKE128
+#define WOLFSSL_SHAKE256
+#define WOLFSSH_NO_NISTP384_MLKEM1024_SHA384
+//#define WOLFSSH_NO_NISTP256_MLKEM768_SHA256
 
 #define NO_FAILURE_ON_REJECTED
 #define DEFAULT_WINDOW_SZ 4096
@@ -90,7 +97,7 @@ extern time_t ssh_server_my_time(time_t *);
 // #define WOLFSSL_SP_384 /* Enable ECC 384-bit SECP384R1 support */
 
 // #define WOLFSSL_SP_CACHE_RESISTANT
-#define WOLFSSL_SP_MATH     /* only SP math - disables integer.c/tfm.c */
+//#define WOLFSSL_SP_MATH     /* only SP math - disables integer.c/tfm.c */
 #define WOLFSSL_SP_MATH_ALL /* use SP math for all key sizes and curves */
 
     // #define WOLFSSL_SP_NO_MALLOC
@@ -373,6 +380,7 @@ extern time_t ssh_server_my_time(time_t *);
 #if 0
 #define DEBUG_WOLFSSL
 #define DEBUG_WOLFSSH
+#define DEBUG_MLKEM
 #else
 #if 0
 #define NO_ERROR_STRINGS
