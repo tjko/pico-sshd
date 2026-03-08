@@ -45,6 +45,8 @@ extern "C"
 #define WOLFSSH_SMALL_STACK
 #define WOLFSSH_KEYGEN
 #define WOLFSSH_ALLOW_USERAUTH_NONE
+
+#if __GNUC__ >= 15
 #define WOLFSSL_HAVE_MLKEM
 #define WOLFSSL_WC_MLKEM
 #define WOLFSSL_NO_MAKE_KEY
@@ -52,6 +54,7 @@ extern "C"
 #define WOLFSSL_SHAKE256
 #define WOLFSSH_NO_NISTP384_MLKEM1024_SHA384
 //#define WOLFSSH_NO_NISTP256_MLKEM768_SHA256
+#endif
 
 #define NO_FAILURE_ON_REJECTED
 #define DEFAULT_WINDOW_SZ 4096
@@ -377,6 +380,7 @@ extern time_t ssh_server_my_time(time_t *);
 
 #undef DEBUG_WOLFSSL
 #undef NO_ERROR_STRINGS
+#ifndef NDEBUG
 #if 0
 #define DEBUG_WOLFSSL
 #define DEBUG_WOLFSSH
@@ -384,6 +388,7 @@ extern time_t ssh_server_my_time(time_t *);
 #else
 #if 0
 #define NO_ERROR_STRINGS
+#endif
 #endif
 #endif
 
