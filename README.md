@@ -23,8 +23,13 @@ and [BrickPico](https://github.com/tjko/brickpico/) projects.
 * Supports elliptic curve cryptography (ECC) for server key and public key authentication:
   - ED25519 (ssh-ed25519)
   - ECDSA (ecdsa-sha2-nistp256)
-* Supports "Post-Quantum" cryptography key agreement algorithms (ML-KEM)
+* Supports "Post-Quantum" cryptography key exchange algorithms (ML-KEM)
 
+
+### Known Issues
+* Requires increasing stack size from the default in Pico-SDK (pico-sshd has been tested to run with 8K stack, but
+  may work with smaller stack sizes, YMMV)
+* ML-KEM key exchange tested to work with GCC 15.2, but appears not to work when using GCC 14.3 (unclear where the issue is)
 
 ### Dependencies
 
@@ -134,7 +139,7 @@ ssh_user_auth_entry_t users[] = {
 };
 
 
-ssh_server_t *sshserver = ssh_server_init(2048, 8192);
+ssh_server_t *sshserver = ssh_server_init(4096, 8192);
 if (!sshserver)
     panic("out of memory);
 
