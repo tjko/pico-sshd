@@ -53,7 +53,7 @@ extern "C"
 #define WOLFSSL_SHAKE128
 #define WOLFSSL_SHAKE256
 #define WOLFSSH_NO_NISTP384_MLKEM1024_SHA384
-//#define WOLFSSH_NO_NISTP256_MLKEM768_SHA256
+#define WOLFSSH_NO_NISTP256_MLKEM768_SHA256
 #endif
 
 #define NO_FAILURE_ON_REJECTED
@@ -381,7 +381,7 @@ extern time_t ssh_server_my_time(time_t *);
 #undef DEBUG_WOLFSSL
 #undef NO_ERROR_STRINGS
 #ifndef NDEBUG
-#if 0
+#if 1
 #define DEBUG_WOLFSSL
 #define DEBUG_WOLFSSH
 #define DEBUG_MLKEM
@@ -484,6 +484,8 @@ unsigned long get_rand_32(void);
 //extern int my_rng_gen_block(unsigned char *output, unsigned int sz);
 #undef CUSTOM_RAND_GENERATE_BLOCK
 #define CUSTOM_RAND_GENERATE_BLOCK wc_pico_rng_gen_block
+#define WC_NO_HASHDRBG
+#define WC_RESEED_INTERVAL (1000000)
 #endif
 
 
