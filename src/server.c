@@ -142,7 +142,7 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 			}
 		}
 		else if (auth_type == WOLFSSH_USERAUTH_PUBLICKEY) {
-			if (!memcmp(auth, u->auth, auth_len)) {
+			if (auth_len == u->auth_len && !memcmp(auth, u->auth, auth_len)) {
 				/* public key matches */
 				res = WOLFSSH_USERAUTH_SUCCESS;
 				break;
