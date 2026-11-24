@@ -907,9 +907,9 @@ void ssh_server_destroy(ssh_server_t *st)
 	stdio_ssh_close(st);
 	ssh_server_close(st);
 	cyw43_arch_lwip_end();
-	ssh_ringbuffer_free(&st->rb_tcp_in);
-	ssh_ringbuffer_free(&st->rb_in);
-	ssh_ringbuffer_free(&st->rb_out);
+	ssh_ringbuffer_destroy(&st->rb_tcp_in);
+	ssh_ringbuffer_destroy(&st->rb_in);
+	ssh_ringbuffer_destroy(&st->rb_out);
 }
 
 
