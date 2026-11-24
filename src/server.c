@@ -727,7 +727,7 @@ static bool ssh_server_open(ssh_server_t *st) {
 	wolfSSH_CTX_SetChannelReqSubsysCb(ctx, channel_req_subsys_cb);
 	wolfSSH_CTX_SetChannelReqExecCb(ctx, channel_req_exec_cb);
 
-	for (int i = 0; st->pkeys[i].key; i++) {
+	for (int i = 0; i < MAX_SERVER_PKEYS && st->pkeys[i].key; i++) {
 		const ssh_server_pkey_t *pk = &st->pkeys[i];
 
 		if (wolfSSH_CTX_UsePrivateKey_buffer(ctx, pk->key, pk->key_len, pk->key_type) < 0) {
@@ -918,7 +918,7 @@ int ssh_server_add_priv_key(ssh_server_t *st, int type, const uint8_t *key, uint
 	if (!st || !key || key_len < 1)
 		return -1;
 
-	for (int i = 0; i <= MAX_SERVER_PKEYS; i++) {
+	for (int i = 0; i < MAX_SERVER_PKEYS; i++) {
 		if (st->pkeys[i].key == NULL) {
 			st->pkeys[i].key = key;
 			st->pkeys[i].key_len = key_len;
