@@ -31,11 +31,11 @@
         WOLFSSL_USER_SETTINGS
     )
     if (${PICO_PLATFORM} MATCHES "^rp2350(-arm-s)?$")
-        add_compile_definitions(wolfssl WOLFSSL_SP_ARM_CORTEX_M_ASM)
+        target_compile_definitions(wolfssl INTERFACE WOLFSSL_SP_ARM_CORTEX_M_ASM)
     elseif (${PICO_PLATFORM} STREQUAL "rp2350-riscv")
-        add_compile_definitions(wolfssl WOLFSSL_SP_RISCV32)
+        target_compile_definitions(wolfssl INTERFACE WOLFSSL_SP_RISCV32)
     else()
-        add_compile_definitions(wolfssl WOLFSSL_SP_ARM_THUMB_ASM)
+        target_compile_definitions(wolfssl INTERFACE WOLFSSL_SP_ARM_THUMB_ASM)
     endif()
 
     target_link_libraries(wolfssl INTERFACE
