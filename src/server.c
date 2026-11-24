@@ -260,8 +260,7 @@ static err_t ssh_process_input(ssh_server_t *st)
 			return ERR_OK;
 		} else {
 			LOG_MSG(LOG_NOTICE, "SSH unkown error: %d", rc);
-			ssh_close_client_connection(st);
-			return ERR_OK;
+			return ssh_close_client_connection(st);
 		}
 	}
 	else  {
@@ -269,7 +268,7 @@ static err_t ssh_process_input(ssh_server_t *st)
 		if (cur) {
 			if (wolfSSH_ChannelGetEof(cur)) {
 				LOG_MSG(LOG_NOTICE, "SSH client closed connection");
-				ssh_close_client_connection(st);
+				return ssh_close_client_connection(st);
 			}
 		}
 		return ERR_OK;
@@ -322,23 +321,40 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 		return err;
 	}
 
-	/* Read as much data as we can fit in the ringbuffer... */
-	while (p != NULL && p->len <= ssh_ringbuffer_free(&st->rb_tcp_in)) {
-		buf = p;
-		if (ssh_ringbuffer_add(&st->rb_tcp_in, buf->payload, buf->len, false))
-			break;
-
-		u16_t p_len = buf->len;
-		p = buf->next;
-		if (p)
-			pbuf_ref(p);
-
-		u8_t freed;
-		do {
-			freed = pbuf_free(buf);
-		} while (freed == 0);
-		tcp_recved(pcb, p_len);
+	/* Take the whole pbuf chain or none of it. If it doesn't fit, returning ERR_MEM makes
+	   lwIP hold on to the data and deliver it again later, once the buffer has drained. */
+	len = p->tot_len;
+	if (len > st->rb_tcp_in.size) {
+		/* Can never fit (rxbuf_size smaller than one TCP segment): refusing it would stall
+		   the connection forever, so drop the connection instead. */
+		LOG_MSG(LOG_ERR, "ssh_server_recv: received %u bytes, more than the input buffer (%u)",
+			len, st->rb_tcp_in.size);
+		pbuf_free(p);
+		return (ssh_close_client_connection(st) == ERR_ABRT ? ERR_ABRT : ERR_OK);
 	}
+	/* Make room by feeding what is already buffered to wolfSSH, as long as that helps. */
+	while (st->cstate == CS_CONNECT && len > ssh_ringbuffer_free(&st->rb_tcp_in)) {
+		size_t used = ssh_ringbuffer_used(&st->rb_tcp_in);
+		if (ssh_process_input(st) == ERR_ABRT) {
+			/* The connection was aborted: lwIP needs ERR_ABRT, and the pbuf is ours. */
+			pbuf_free(p);
+			return ERR_ABRT;
+		}
+		if (ssh_ringbuffer_used(&st->rb_tcp_in) >= used)
+			break;
+	}
+	if (st->client != pcb) {
+		/* ssh_process_input() closed the connection (gracefully: lwIP takes care of the
+		   pcb). */
+		pbuf_free(p);
+		return ERR_OK;
+	}
+	if (len > ssh_ringbuffer_free(&st->rb_tcp_in))
+		return ERR_MEM;
+	for (buf = p; buf; buf = buf->next)
+		ssh_ringbuffer_add(&st->rb_tcp_in, buf->payload, buf->len, false);
+	tcp_recved(pcb, len);
+	pbuf_free(p);
 
 	if ((len = ssh_ringbuffer_used(&st->rb_tcp_in)) > 0) {
 		if (st->cstate == CS_CONNECT)
