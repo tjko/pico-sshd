@@ -446,6 +446,8 @@ static void ssh_server_err(void *arg, err_t err)
 	} else {
 		LOG_MSG(LOG_ERR,"ssh_server_err: client connection error: %d", err);
 	}
+	/* lwIP has already freed the pcb: forget it rather than close it again. */
+	st->client = NULL;
 	ssh_close_client_connection(st);
 }
 
