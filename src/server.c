@@ -310,8 +310,7 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 		/* Connection closed by client */
 		LOG_MSG(LOG_NOTICE, "SSH client closed connection from %s:%u",
 			ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
-		ssh_close_client_connection(st);
-		return ERR_OK;
+		return ssh_close_client_connection(st);
 	}
 	if (err != ERR_OK) {
 		/* unknown error... */
@@ -358,7 +357,7 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 
 	if ((len = ssh_ringbuffer_used(&st->rb_tcp_in)) > 0) {
 		if (st->cstate == CS_CONNECT)
-			ssh_process_input(st);
+			return ssh_process_input(st);
 	}
 
 	return ERR_OK;
@@ -420,12 +419,15 @@ static err_t ssh_server_poll(void *arg, struct tcp_pcb *pcb)
 			} else {
 				LOG_MSG(LOG_INFO, "wolfSSH_accept(): failed: %d (%d)", err, res);
 			}
-			ssh_close_client_connection(st);
+			/* ERR_ABRT if the connection had to be aborted: lwIP must not touch it again. */
+			return ssh_close_client_connection(st);
 		}
 	}
 	else if (st->cstate == CS_CONNECT) {
-		ssh_process_input(st);
-		ssh_server_flush_buffer(st);
+		if (ssh_process_input(st) == ERR_ABRT)
+			return ERR_ABRT;
+		if (st->client == pcb)
+			ssh_server_flush_buffer(st);
 	}
 
 	return ERR_OK;
