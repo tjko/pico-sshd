@@ -142,7 +142,7 @@ static int ssh_server_default_auth_cb(void *ctx, const byte *login, word32 login
 			}
 		}
 		else if (auth_type == WOLFSSH_USERAUTH_PUBLICKEY) {
-			if (!memcmp(auth, u->auth, auth_len)) {
+			if (auth_len == u->auth_len && !memcmp(auth, u->auth, auth_len)) {
 				/* public key matches */
 				res = WOLFSSH_USERAUTH_SUCCESS;
 				break;
@@ -260,8 +260,7 @@ static err_t ssh_process_input(ssh_server_t *st)
 			return ERR_OK;
 		} else {
 			LOG_MSG(LOG_NOTICE, "SSH unkown error: %d", rc);
-			ssh_close_client_connection(st);
-			return ERR_OK;
+			return ssh_close_client_connection(st);
 		}
 	}
 	else  {
@@ -269,7 +268,7 @@ static err_t ssh_process_input(ssh_server_t *st)
 		if (cur) {
 			if (wolfSSH_ChannelGetEof(cur)) {
 				LOG_MSG(LOG_NOTICE, "SSH client closed connection");
-				ssh_close_client_connection(st);
+				return ssh_close_client_connection(st);
 			}
 		}
 		return ERR_OK;
@@ -311,8 +310,7 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 		/* Connection closed by client */
 		LOG_MSG(LOG_NOTICE, "SSH client closed connection from %s:%u",
 			ip4addr_ntoa(&pcb->remote_ip), pcb->remote_port);
-		ssh_close_client_connection(st);
-		return ERR_OK;
+		return ssh_close_client_connection(st);
 	}
 	if (err != ERR_OK) {
 		/* unknown error... */
@@ -322,27 +320,44 @@ static err_t ssh_server_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
 		return err;
 	}
 
-	/* Read as much data as we can fit in the ringbuffer... */
-	while (p != NULL && p->len <= ssh_ringbuffer_free(&st->rb_tcp_in)) {
-		buf = p;
-		if (ssh_ringbuffer_add(&st->rb_tcp_in, buf->payload, buf->len, false))
-			break;
-
-		u16_t p_len = buf->len;
-		p = buf->next;
-		if (p)
-			pbuf_ref(p);
-
-		u8_t freed;
-		do {
-			freed = pbuf_free(buf);
-		} while (freed == 0);
-		tcp_recved(pcb, p_len);
+	/* Take the whole pbuf chain or none of it. If it doesn't fit, returning ERR_MEM makes
+	   lwIP hold on to the data and deliver it again later, once the buffer has drained. */
+	len = p->tot_len;
+	if (len > st->rb_tcp_in.size) {
+		/* Can never fit (rxbuf_size smaller than one TCP segment): refusing it would stall
+		   the connection forever, so drop the connection instead. */
+		LOG_MSG(LOG_ERR, "ssh_server_recv: received %u bytes, more than the input buffer (%u)",
+			len, st->rb_tcp_in.size);
+		pbuf_free(p);
+		return (ssh_close_client_connection(st) == ERR_ABRT ? ERR_ABRT : ERR_OK);
 	}
+	/* Make room by feeding what is already buffered to wolfSSH, as long as that helps. */
+	while (st->cstate == CS_CONNECT && len > ssh_ringbuffer_free(&st->rb_tcp_in)) {
+		size_t used = ssh_ringbuffer_used(&st->rb_tcp_in);
+		if (ssh_process_input(st) == ERR_ABRT) {
+			/* The connection was aborted: lwIP needs ERR_ABRT, and the pbuf is ours. */
+			pbuf_free(p);
+			return ERR_ABRT;
+		}
+		if (ssh_ringbuffer_used(&st->rb_tcp_in) >= used)
+			break;
+	}
+	if (st->client != pcb) {
+		/* ssh_process_input() closed the connection (gracefully: lwIP takes care of the
+		   pcb). */
+		pbuf_free(p);
+		return ERR_OK;
+	}
+	if (len > ssh_ringbuffer_free(&st->rb_tcp_in))
+		return ERR_MEM;
+	for (buf = p; buf; buf = buf->next)
+		ssh_ringbuffer_add(&st->rb_tcp_in, buf->payload, buf->len, false);
+	tcp_recved(pcb, len);
+	pbuf_free(p);
 
 	if ((len = ssh_ringbuffer_used(&st->rb_tcp_in)) > 0) {
 		if (st->cstate == CS_CONNECT)
-			ssh_process_input(st);
+			return ssh_process_input(st);
 	}
 
 	return ERR_OK;
@@ -404,12 +419,15 @@ static err_t ssh_server_poll(void *arg, struct tcp_pcb *pcb)
 			} else {
 				LOG_MSG(LOG_INFO, "wolfSSH_accept(): failed: %d (%d)", err, res);
 			}
-			ssh_close_client_connection(st);
+			/* ERR_ABRT if the connection had to be aborted: lwIP must not touch it again. */
+			return ssh_close_client_connection(st);
 		}
 	}
 	else if (st->cstate == CS_CONNECT) {
-		ssh_process_input(st);
-		ssh_server_flush_buffer(st);
+		if (ssh_process_input(st) == ERR_ABRT)
+			return ERR_ABRT;
+		if (st->client == pcb)
+			ssh_server_flush_buffer(st);
 	}
 
 	return ERR_OK;
@@ -428,6 +446,8 @@ static void ssh_server_err(void *arg, err_t err)
 	} else {
 		LOG_MSG(LOG_ERR,"ssh_server_err: client connection error: %d", err);
 	}
+	/* lwIP has already freed the pcb: forget it rather than close it again. */
+	st->client = NULL;
 	ssh_close_client_connection(st);
 }
 
@@ -711,7 +731,7 @@ static bool ssh_server_open(ssh_server_t *st) {
 	wolfSSH_CTX_SetChannelReqSubsysCb(ctx, channel_req_subsys_cb);
 	wolfSSH_CTX_SetChannelReqExecCb(ctx, channel_req_exec_cb);
 
-	for (int i = 0; st->pkeys[i].key; i++) {
+	for (int i = 0; i < MAX_SERVER_PKEYS && st->pkeys[i].key; i++) {
 		const ssh_server_pkey_t *pk = &st->pkeys[i];
 
 		if (wolfSSH_CTX_UsePrivateKey_buffer(ctx, pk->key, pk->key_len, pk->key_type) < 0) {
@@ -891,9 +911,9 @@ void ssh_server_destroy(ssh_server_t *st)
 	stdio_ssh_close(st);
 	ssh_server_close(st);
 	cyw43_arch_lwip_end();
-	ssh_ringbuffer_free(&st->rb_tcp_in);
-	ssh_ringbuffer_free(&st->rb_in);
-	ssh_ringbuffer_free(&st->rb_out);
+	ssh_ringbuffer_destroy(&st->rb_tcp_in);
+	ssh_ringbuffer_destroy(&st->rb_in);
+	ssh_ringbuffer_destroy(&st->rb_out);
 }
 
 
@@ -902,7 +922,7 @@ int ssh_server_add_priv_key(ssh_server_t *st, int type, const uint8_t *key, uint
 	if (!st || !key || key_len < 1)
 		return -1;
 
-	for (int i = 0; i <= MAX_SERVER_PKEYS; i++) {
+	for (int i = 0; i < MAX_SERVER_PKEYS; i++) {
 		if (st->pkeys[i].key == NULL) {
 			st->pkeys[i].key = key;
 			st->pkeys[i].key_len = key_len;
